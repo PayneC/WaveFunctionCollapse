@@ -65,4 +65,17 @@ public class UISudoku : MonoBehaviour
             mData.mDatas[i] = packet; 
         }
     }
+
+    public void Clear()
+    {
+        for (int i = 0; i < 81; ++i)
+        {
+            mCells[i].SetData(0);
+
+            SudokuPacket packet = new SudokuPacket();
+            packet.Result = (byte)mCells[i].GetData();
+
+            mData.mDatas[i] = packet;
+        }
+    }
 }
