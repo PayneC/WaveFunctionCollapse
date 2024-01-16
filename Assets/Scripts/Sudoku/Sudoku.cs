@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Runtime.InteropServices;
 using System.Timers;
 using Unity.Collections;
@@ -28,7 +28,7 @@ public class Sudoku : IDisposable
         JobHandle jobHandle = new SudokuPossibleJob()
         {
             mSource = mDatas,
-            mDestination = mTmp,            
+            mDestination = mTmp,
         }.Schedule(81, 9);
         jobHandle = new SudokuSettleJob()
         {
@@ -156,10 +156,28 @@ public struct SudokuNecessaryJob : IJobParallelFor
             Area(ref rlts, pos);
 
             rlts = ~rlts;
-            if((ushort)rlts != 0)
+            if ((ushort)rlts != 0)
             {
                 packet.PossibleResults &= (ushort)rlts;
-            }            
+            }
+
+            rlts = 0;
+            Row(ref rlts, pos);
+
+            rlts = ~rlts;
+            if ((ushort)rlts != 0)
+            {
+                packet.PossibleResults &= (ushort)rlts;
+            }
+
+            rlts = 0;
+            Column(ref rlts, pos);
+
+            rlts = ~rlts;
+            if ((ushort)rlts != 0)
+            {
+                packet.PossibleResults &= (ushort)rlts;
+            }
         }
         mDestination[index] = packet;
     }
@@ -175,15 +193,36 @@ public struct SudokuNecessaryJob : IJobParallelFor
         {
             for (int x = min.x; x < max.x; ++x)
             {
-                if(x == pos.x && y == pos.y)
+                if (x == pos.x && y == pos.y)
                     continue;
 
                 SudokuPacket packet = mSource[x + y * 9];
                 rlts |= packet.PossibleResults;
             }
         }
+    }
 
-        
+    //行
+    private void Row(ref int rlts, int2 pos)
+    {
+        for (int x = 0; x < 9; ++x)
+        {
+            if (x == pos.x)
+                continue;
+            SudokuPacket packet = mSource[x + pos.y * 9];
+            rlts |= packet.PossibleResults;
+        }
+    }
+
+    private void Column(ref int rlts, int2 pos)
+    {
+        for (int y = 0; y < 9; ++y)
+        {
+            if (y == pos.y)
+                continue;
+            SudokuPacket packet = mSource[pos.x + y * 9];
+            rlts |= packet.PossibleResults;
+        }
     }
 }
 
@@ -196,7 +235,7 @@ public struct SudokuSettleJob : IJob
     {
         rlt = 0;
 
-        int count = 0;    
+        int count = 0;
         for (int i = 0; i < 9; ++i)
         {
             int b = 1 << i;
@@ -217,7 +256,7 @@ public struct SudokuSettleJob : IJob
             if (packet.Result == 0)
             {
                 packet.Entropy = (byte)Cal(packet.PossibleResults, out int rlt);
-                if(1 == packet.Entropy)
+                if (1 == packet.Entropy)
                 {
                     packet.Result = (byte)rlt;
                 }
