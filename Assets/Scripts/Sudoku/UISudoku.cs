@@ -29,12 +29,25 @@ public class UISudoku : MonoBehaviour
             9,0,4,2,0,0,0,6,7,
         };
 
+        int[] d2 = new int[81]
+        {
+            9,7,0,4,0,0,0,0,0,
+            0,2,0,0,0,1,9,0,0,
+            0,0,0,0,0,6,0,0,8,
+            0,0,5,0,0,9,0,0,0,
+            0,0,0,3,0,0,8,0,1,
+            0,0,0,0,8,0,7,3,0,
+            5,0,0,0,0,0,0,0,9,
+            0,0,3,8,5,0,4,0,0,
+            6,0,2,0,0,0,0,5,0,
+        };
+
 
         for (int i = 0; i < 81; ++i)
         {
             mCells[i] = GameObject.Instantiate(mPrefab, mGrid.transform).GetComponent<UISudokuCell>();
             mCells[i].SetIndex(i);
-            mCells[i].SetData(d[i]);
+            mCells[i].SetData(d2[i], d2[i] == 0 ? 9 : 1);
         }
         mPrefab.SetActive(false);
 
@@ -51,7 +64,7 @@ public class UISudoku : MonoBehaviour
         mData.Next();
         for (int i = 0; i < 81; ++i)
         {
-            mCells[i].SetData(mData.mDatas[i].Result);
+            mCells[i].SetData(mData.mDatas[i].Result, mData.mDatas[i].Entropy);
         }
     }
 
@@ -61,7 +74,16 @@ public class UISudoku : MonoBehaviour
         {
             SudokuPacket packet = new SudokuPacket();
             packet.Result = (byte)mCells[i].GetData();
-
+            if(packet.Result != 0)
+            {
+                packet.Entropy = 1;
+                packet.PossibleResults = (ushort)(1 << ((int)packet.Result - 1));
+            }
+            else
+            {
+                packet.Entropy = 9;
+                packet.PossibleResults = 0;
+            }
             mData.mDatas[i] = packet; 
         }
     }
@@ -70,7 +92,7 @@ public class UISudoku : MonoBehaviour
     {
         for (int i = 0; i < 81; ++i)
         {
-            mCells[i].SetData(0);
+            mCells[i].SetData(0, 0);
 
             SudokuPacket packet = new SudokuPacket();
             packet.Result = (byte)mCells[i].GetData();

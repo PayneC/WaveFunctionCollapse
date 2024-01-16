@@ -8,6 +8,7 @@ public class UISudokuCell : MonoBehaviour
     public int nIndex;
     public Image mBackgroup;
     public TMP_InputField mText;
+    public TextMeshProUGUI mText2;
 
     public void SetIndex(int index)
     {
@@ -26,7 +27,7 @@ public class UISudokuCell : MonoBehaviour
         }
     }
 
-    public void SetData(int v)
+    public void SetData(int v, int C)
     {
         if(v > 0 && v < 10)
         {
@@ -36,6 +37,7 @@ public class UISudokuCell : MonoBehaviour
         {
             mText.text = null;
         }
+        mText2.text = C.ToString();
     }
 
     public int GetData()

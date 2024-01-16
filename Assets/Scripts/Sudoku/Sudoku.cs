@@ -1,8 +1,10 @@
 using System;
 using System.Runtime.InteropServices;
+using System.Timers;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
+using Unity.VisualScripting;
 
 public class Sudoku : IDisposable
 {
@@ -17,18 +19,33 @@ public class Sudoku : IDisposable
 
     public void Dispose()
     {
-        if(mDatas.IsCreated) { mDatas.Dispose(); }
-        if(mTmp.IsCreated) { mTmp.Dispose(); }
+        if (mDatas.IsCreated) { mDatas.Dispose(); }
+        if (mTmp.IsCreated) { mTmp.Dispose(); }
     }
 
     public void Next()
     {
-        mTmp.CopyFrom(mDatas);
-        new SudokuJob()
+        JobHandle jobHandle = new SudokuPossibleJob()
         {
-            mDestination = mDatas,
+            mSource = mDatas,
+            mDestination = mTmp,            
+        }.Schedule(81, 9);
+        jobHandle = new SudokuSettleJob()
+        {
             mSource = mTmp,
-        }.Schedule(81, 9).Complete();
+            mDestination = mDatas,
+        }.Schedule(jobHandle);
+        jobHandle = new SudokuNecessaryJob()
+        {
+            mSource = mDatas,
+            mDestination = mTmp,
+        }.Schedule(81, 9, jobHandle);
+        jobHandle = new SudokuSettleJob()
+        {
+            mSource = mTmp,
+            mDestination = mDatas,
+        }.Schedule(jobHandle);
+        jobHandle.Complete();
     }
 }
 
@@ -48,91 +65,164 @@ public struct SudokuPacket
     public ushort PossibleResults;
 }
 
-public struct SudokuJob : IJobParallelFor
+/// <summary>
+/// 计算每个格子可能的结果
+/// </summary>
+public struct SudokuPossibleJob : IJobParallelFor
 {
-    [ReadOnly] [NativeDisableParallelForRestriction] public NativeArray<SudokuPacket> mSource;
+    [ReadOnly][NativeDisableParallelForRestriction] public NativeArray<SudokuPacket> mSource;
     public NativeArray<SudokuPacket> mDestination;
 
     public void Execute(int index)
     {
-        SudokuPacket packet = mDestination[index];
+        SudokuPacket packet = mSource[index];
         if (packet.Result == 0)
         {
-            int count = 0;
             int rlts = 0;
             int2 pos = new int2(index % 9, index / 9);
-            Area(ref count, ref rlts, pos);
-            Row(ref count, ref rlts, pos);
-            Column(ref count, ref rlts, pos);
+            Area(ref rlts, pos);
+            Row(ref rlts, pos);
+            Column(ref rlts, pos);
 
-            int rlt = 0;
-            if(9 - count < 2)
-            {
-                for(int i = 0; i < 9; i++) 
-                {
-                    int b = 1 << i;
-                    if((rlts & b) == 0)
-                    {
-                        rlt = i + 1;
-                        break;
-                    }
-                }
-            }
-
-            packet.Entropy = (byte)count;
-            packet.Result = (byte)rlt;
-            packet.PossibleResults = (byte)rlts;
-
-            mDestination[index] = packet;
+            packet.PossibleResults = (ushort)~rlts;
         }
+        mDestination[index] = packet;
     }
 
-    private void AppendResult(ref int count, ref int rlts, SudokuPacket packet)
+    private void AppendResult(ref int rlts, SudokuPacket packet)
     {
         if (packet.Result == 0)
             return;
 
         int resultBit = 1 << (packet.Result - 1);
-        if ((resultBit & rlts) == 0)
-        {
-            rlts |= resultBit;
-            ++count;
-        }
+        rlts |= resultBit;
     }
 
-    public void Area(ref int count, ref int rlts, int2 pos) 
+    public void Area(ref int rlts, int2 pos)
     {
         int2 area = pos / 3;
 
         int2 min = area * 3;
         int2 max = area * 3 + 3;
 
-        for(int y = min.y; y < max.y; ++y)
+        for (int y = min.y; y < max.y; ++y)
         {
             for (int x = min.x; x < max.x; ++x)
             {
                 SudokuPacket packet = mSource[x + y * 9];
-                AppendResult(ref count, ref rlts, packet);
+                AppendResult(ref rlts, packet);
             }
         }
     }
 
-    //��
-    private void Row(ref int count, ref int rlts, int2 pos)
+    //行
+    private void Row(ref int rlts, int2 pos)
     {
         for (int x = 0; x < 9; ++x)
         {
             SudokuPacket packet = mSource[x + pos.y * 9];
-            AppendResult(ref count, ref rlts, packet);
+            AppendResult(ref rlts, packet);
         }
     }
 
-    private void Column(ref int count, ref int rlts, int2 pos)
+    private void Column(ref int rlts, int2 pos)
     {
         for (int y = 0; y < 9; ++y)
         {
             SudokuPacket packet = mSource[pos.x + y * 9];
-            AppendResult(ref count, ref rlts, packet);
+            AppendResult(ref rlts, packet);
+        }
+    }
+}
+
+/// <summary>
+/// 计算每个格子必须是哪些结果
+/// 将一个9宫格内其他格子的所有可能性相加之后取反
+/// 得到当前格子必须是哪些结果
+/// 并且与自身可能的结果进行交集
+/// </summary>
+public struct SudokuNecessaryJob : IJobParallelFor
+{
+    [ReadOnly][NativeDisableParallelForRestriction] public NativeArray<SudokuPacket> mSource;
+    public NativeArray<SudokuPacket> mDestination;
+
+    public void Execute(int index)
+    {
+        SudokuPacket packet = mSource[index];
+        if (packet.Result == 0)
+        {
+            int rlts = 0;
+            int2 pos = new int2(index % 9, index / 9);
+            Area(ref rlts, pos);
+
+            rlts = ~rlts;
+            if((ushort)rlts != 0)
+            {
+                packet.PossibleResults &= (ushort)rlts;
+            }            
+        }
+        mDestination[index] = packet;
+    }
+
+    public void Area(ref int rlts, int2 pos)
+    {
+        int2 area = pos / 3;
+
+        int2 min = area * 3;
+        int2 max = area * 3 + 3;
+
+        for (int y = min.y; y < max.y; ++y)
+        {
+            for (int x = min.x; x < max.x; ++x)
+            {
+                if(x == pos.x && y == pos.y)
+                    continue;
+
+                SudokuPacket packet = mSource[x + y * 9];
+                rlts |= packet.PossibleResults;
+            }
+        }
+
+        
+    }
+}
+
+public struct SudokuSettleJob : IJob
+{
+    [ReadOnly] public NativeArray<SudokuPacket> mSource;
+    public NativeArray<SudokuPacket> mDestination;
+
+    public int Cal(in int rlts, out int rlt)
+    {
+        rlt = 0;
+
+        int count = 0;    
+        for (int i = 0; i < 9; ++i)
+        {
+            int b = 1 << i;
+            if ((rlts & b) == b)
+            {
+                rlt = i + 1;
+                ++count;
+            }
+        }
+        return count;
+    }
+
+    public void Execute()
+    {
+        for (int i = 0; i < 81; ++i)
+        {
+            SudokuPacket packet = mSource[i];
+            if (packet.Result == 0)
+            {
+                packet.Entropy = (byte)Cal(packet.PossibleResults, out int rlt);
+                if(1 == packet.Entropy)
+                {
+                    packet.Result = (byte)rlt;
+                }
+            }
+            mDestination[i] = packet;
         }
     }
 }
